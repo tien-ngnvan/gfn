@@ -1,8 +1,8 @@
 import os
+import torch
 import cv2
 import pickle
 import argparse
-import numpy as np
 from datetime import datetime
 from pathlib import Path
 from glob import glob
@@ -23,7 +23,6 @@ def parse_args():
         "--input_folder",
         # default="sample",
         type=str,
-        required=True,
         help="Path to the input image/video file. Support image (jpg, png, jpeg) and video (mp4, avi, mkv)",
     )
     parser.add_argument(
@@ -112,31 +111,13 @@ def parse_args():
     )
     return parser.parse_args()
 
-def face_distance(face_encodings, face_to_compare):
-    """
-    Given a list of face encodings, compare them to a known face encoding and get a euclidean distance
-    for each comparison face. The distance tells you how similar the faces are.
-
-    :param face_encodings: List of face encodings to compare
-    :param face_to_compare: A face encoding to compare against
-    :return: A numpy ndarray with the distance for each face in the same order as the 'faces' array
-    """
-    if len(face_encodings) == 0:
-        return np.empty((0))
-
-    return np.linalg.norm(face_encodings - face_to_compare, axis=1)
-
-def compare_faces(known_face_encodings, face_encoding_to_check, tolerance=0.6):
-    """
-    Compare a list of face encodings against a candidate encoding to see if they match.
-
-    :param known_face_encodings: A list of known face encodings
-    :param face_encoding_to_check: A single face encoding to compare against the list
-    :param tolerance: How much distance between faces to consider it a match. Lower is more strict. 0.6 is typical best performance.
-    :return: A list of True/False values indicating which known_face_encodings match the face encoding to check
-    """
-    return list(face_distance(known_face_encodings, face_encoding_to_check) <= tolerance)
-
+def compare_cosine(embed, anchor):
+    b = torch.Tensor(embed)
+    b_norm = torch.nn.functional.normalize(b, p=2, dim=1)
+    
+    result = torch.mm(anchor, b_norm.transpose(0,1))
+  
+    return result 
 
 def init_database(args, processor):
     global db_embed
@@ -149,6 +130,9 @@ def init_database(args, processor):
     if os.path.isfile(os.path.join(datapath)):
         with open(datapath, 'rb') as handle:
             db_embed = pickle.load(handle)
+        with open(os.path.join(datapath).replace('pickle', 'txt'), 'r') as f:
+            register_name = f.readlines()
+        register_name = [x.strip() for x in register_name]
     else:
         img_formats = [ "bmp", "jpg", "jpeg", "png", "tif", "tiff", "dng", "webp", "mpo", ]
         p = str(Path(args.db_path).absolute())  # os-agnostic absolute path
@@ -163,17 +147,27 @@ def init_database(args, processor):
             raise Exception(f"ERROR: {p} does not exist")
 
         img_file_list = [x for x in files if x.split(".")[-1].lower() in img_formats]
+        
         # read samples folder database
-        db_embed = []
+        db_embed, register_name = [], []
+        
         for x in img_file_list:
+            name = x.split("\\")[-1]
             image = cv2.imread(x)
             _, _, _, _, embd = processor(image, meta, mode="image")
             db_embed.append(embd[0])
+            register_name.append(name.split('.')[0])
   
         with open(os.path.join(datapath), 'wb') as handle:
             pickle.dump(db_embed, handle, protocol=pickle.HIGHEST_PROTOCOL)
             
-    register_name = ['Person 1']
+        with open(os.path.join(datapath).replace('pickle', 'txt'), 'w') as f:
+            for x in register_name:
+                f.writelines(f'{x}\n')
+                
+    db_embed = torch.stack([torch.Tensor(x) for x in db_embed])
+    db_embed = torch.nn.functional.normalize(db_embed, p=2, dim=1)
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -195,12 +189,12 @@ if __name__ == "__main__":
         
         boxes, scores, _, kpts, embed = processor(frame, meta, mode="image")
     
-        if len(boxes) == 1:
-            matched = compare_faces(db_embed, embed)
-            fc_distance = face_distance(db_embed, embed)
+        if len(boxes) == 1:            
+            result = compare_cosine(embed, db_embed)
+            prob, idx = torch.max(result, dim=0)
+    
+            name = register_name[idx] if prob > 0.1 else 'Unknow'
             
-            match_index = np.argmin(fc_distance)
-            name = register_name[match_index] if fc_distance < 1.2 else 'Unknow'
             steps = 3
             for xyxy, conf, kpt in zip(boxes, scores, kpts):
                 x1, y1, x2, y2 = xyxy.astype(int)
