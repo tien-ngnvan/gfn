@@ -3,7 +3,7 @@
 ## Installed package
 ```
 %cd gfn
-pip install -q onnxruntime opencv-python
+pip install -r requirements.txt
 ```
 ## Checkpoint
 Download checkpoint [here](https://drive.google.com/drive/folders/1nD-NCMlCLuRyFl9VBq1umKk-hMwEJsgU?usp=sharing)

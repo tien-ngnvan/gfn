@@ -152,7 +152,7 @@ def init_database(args, processor):
         db_embed, register_name = [], []
         
         for x in img_file_list:
-            name = x.split("\\")[-1]
+            name = x.split("/")[-1]
             image = cv2.imread(x)
             _, _, _, _, embd = processor(image, meta, mode="image")
             db_embed.append(embd[0])

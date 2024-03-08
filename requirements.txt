@@ -1,0 +1,6 @@
+torch
+opencv-python
+onnxruntime==1.17.1
+opencv-python==4.9.0.80
+torchvision
+gdown==v5.1.0
