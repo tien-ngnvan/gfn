@@ -14,13 +14,18 @@ Download checkpoint [here](https://drive.google.com/drive/folders/1nD-NCMlCLuRyF
 ```
 
 ## 
-Create database folder and share your images
+Create database folder and share your images. The folder should be contain at less 9 images (up, down, left, right, top left, top right, bottom left, bottom right and center)
 ```
 |__modules
 |__samples
 |__database
-|  |__ vantien.jpg
-|  |__ trongthuy.jpg
+|  |__ vantien
+|     |__ vantien_left.jpg
+|     |__ vantien_right.jpg
+|     |__ ...
+|  |__ trongthuy
+|     |__ trongthuy_up.jpg
+|     |__ trongthuy_down.jpg
 |  |__ ...
 |__demo.py
 ```

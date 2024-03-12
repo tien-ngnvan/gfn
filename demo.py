@@ -1,5 +1,4 @@
 import os
-import torch
 import cv2
 import pickle
 import argparse
@@ -10,7 +9,8 @@ import glob
 
 from modules.processor.processor import Processor
 from modules.logging.logger import setup_logger, LoggerFormat
-
+from sklearn.preprocessing import normalize 
+import numpy as np
 
 IMG_TYPES = [".jpg", ".jpeg", ".png"]
 VIDEO_TYPES = [".mp4", ".avi", ".mkv"]
@@ -112,10 +112,8 @@ def parse_args():
     return parser.parse_args()
 
 def compare_cosine(embed, anchor):
-    b = torch.Tensor(embed)
-    b_norm = torch.nn.functional.normalize(b, p=2, dim=1)
-    
-    result = torch.mm(anchor, b_norm.transpose(0,1))
+    b_norm = normalize(embed)
+    result = np.dot(b_norm, anchor.T)[0]
   
     return result 
 
@@ -139,10 +137,10 @@ def init_database(args, processor):
         
         if "*" in p:
             files = sorted(glob.glob(p, recursive=True))  # glob
-        elif os.path.isdir(p):
-            files = sorted(glob.glob(os.path.join(p, "*.*")))  # dir
         elif os.path.isfile(p):
             files = [p]  # files
+        elif os.path.isdir(p):
+            files = sorted(glob.glob(os.path.join(p, "**/*")))  # dir
         else:
             raise Exception(f"ERROR: {p} does not exist")
 
@@ -164,9 +162,8 @@ def init_database(args, processor):
         with open(os.path.join(datapath).replace('pickle', 'txt'), 'w') as f:
             for x in register_name:
                 f.writelines(f'{x}\n')
-                
-    db_embed = torch.stack([torch.Tensor(x) for x in db_embed])
-    db_embed = torch.nn.functional.normalize(db_embed, p=2, dim=1)
+    
+    db_embed = normalize(db_embed)
 
 
 if __name__ == "__main__":
@@ -191,9 +188,8 @@ if __name__ == "__main__":
     
         if len(boxes) == 1:            
             result = compare_cosine(embed, db_embed)
-            prob, idx = torch.max(result, dim=0)
-    
-            name = register_name[idx] if prob > 0.1 else 'Unknow'
+            rec_idx = result.argmax(-1)
+            name = register_name[rec_idx]  if result[rec_idx] > 0.28 else 'Unknow'
             
             steps = 3
             for xyxy, conf, kpt in zip(boxes, scores, kpts):

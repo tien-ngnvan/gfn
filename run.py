@@ -154,7 +154,6 @@ if __name__ == "__main__":
             "day": file_name.split("_")[0],
             "time": file_name.split("_")[1],
         }
-
         # Check image file type
         if file_type in IMG_TYPES:
             sys_logger.info(f"Processing image: {file_name}")
@@ -183,7 +182,6 @@ if __name__ == "__main__":
                 target_fps,
                 (width, height),
             )
-            # processor.reset(db, fps=target_fps, host=args.host, port=args.port)
             # 20231116_120951_1857_axis-a4-south-delivery
             init_time = datetime.datetime.strptime(
                 file_name.split("_")[0] + "_" + file_name.split("_")[1],

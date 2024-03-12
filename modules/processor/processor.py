@@ -51,18 +51,18 @@ class Processor:
             # humans = self.track_det(img, humans)
             faces = self.track_face(img, boxes, scores, kpts)
 
-        # if len(boxes) != 0:
-        #     steps = 3
-        #     for xyxy, conf, kpt in zip(boxes, scores, kpts):
-        #         x1, y1, x2, y2 = xyxy.astype(int)
-        #         color = get_color(int(kpt)) if mode == "video" else (0, 255, 0)
-        #         cv2.rectangle(img, (x1, y1), (x2, y2), color=color, thickness=2)
+        if len(boxes) != 0:
+            steps = 3
+            for xyxy, conf, kpt in zip(boxes, scores, kpts):
+                x1, y1, x2, y2 = xyxy.astype(int)
+                color = get_color(int(kpt)) if mode == "video" else (0, 255, 0)
+                cv2.rectangle(img, (x1, y1), (x2, y2), color=color, thickness=2)
 
-        #         num_step = len(kpt) // steps
-        #         for kid in range(num_step):
-        #             r, g, b = pose_kpt_color[kid]
-        #             x_coord, y_coord = kpt[steps * kid], kpt[steps * kid + 1]
-        #             cv2.circle(img, (int(x_coord), int(y_coord)), 2, (int(r), int(g), int(b)), -1)
+                num_step = len(kpt) // steps
+                for kid in range(num_step):
+                    r, g, b = pose_kpt_color[kid]
+                    x_coord, y_coord = kpt[steps * kid], kpt[steps * kid + 1]
+                    cv2.circle(img, (int(x_coord), int(y_coord)), 2, (int(r), int(g), int(b)), -1)
                     
                 # cv2.putText(
                 #     img,
