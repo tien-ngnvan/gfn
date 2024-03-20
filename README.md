@@ -34,5 +34,6 @@ Create database folder and share your images. The folder should be contain at le
 ```sh
 python -m demo \
     --det_model_path weights/yolov7-hf-v1.onnx \
-    --reid_model_path weights/ghostnetv1.onnx 
+    --reid_model_path weights/ghostnetv1.onnx \
+    --spoofing_model_path weights/OCI2M.onnx
 ```

@@ -1,16 +1,16 @@
 import os
 import cv2
+import glob
 import pickle
 import argparse
+import numpy as np
 from datetime import datetime
 from pathlib import Path
-from glob import glob
-import glob
 
 from modules.processor.processor import Processor
 from modules.logging.logger import setup_logger, LoggerFormat
 from sklearn.preprocessing import normalize 
-import numpy as np
+
 
 IMG_TYPES = [".jpg", ".jpeg", ".png"]
 VIDEO_TYPES = [".mp4", ".avi", ".mkv"]
@@ -109,6 +109,26 @@ def parse_args():
         default="database",
         help="Host for qdrant database",
     )
+    
+    parser.add_argument(
+        "--turn_spoofing",
+        type=bool,
+        default=0,
+        help="Using spoofing or not in recognitions",
+    )
+    parser.add_argument(
+        "--spoofing_model_path",
+        type=str,
+        default="weights/OCI2M_spoofing.onnx",
+        help="Path to the human reid model",
+    )
+    parser.add_argument(
+        "--spoof_thresh",
+        type=int,
+        default=0.5,
+        help="Threshold for Live or Spoofing",
+    )
+    
     return parser.parse_args()
 
 def compare_cosine(embed, anchor):
@@ -184,12 +204,15 @@ if __name__ == "__main__":
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         
-        boxes, scores, _, kpts, embed = processor(frame, meta, mode="image")
+        boxes, scores, kpts, embed = processor(frame, meta, mode="image")
     
-        if len(boxes) == 1:            
-            result = compare_cosine(embed, db_embed)
-            rec_idx = result.argmax(-1)
-            name = register_name[rec_idx]  if result[rec_idx] > 0.28 else 'Unknow'
+        if len(boxes) == 1:  
+            if len(embed) != 0:
+                result = compare_cosine(embed, db_embed)
+                rec_idx = result.argmax(-1)
+                name = register_name[rec_idx]  if result[rec_idx] > 0.28 else 'Unknow'
+            else:
+                name = 'FAKE'
             
             steps = 3
             for xyxy, conf, kpt in zip(boxes, scores, kpts):

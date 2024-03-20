@@ -1,8 +1,9 @@
-import os
 import cv2
+import torch
 import numpy as np
 
-from modules import HeadFace, GhostFaceNet
+from modules import HeadFace, GhostFaceNet, SpoofingNet
+from sklearn.preprocessing import normalize
 
 
 palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
@@ -26,8 +27,9 @@ class Processor:
         self,
         det_model_path,
         reid_model_path,
-        camera_log_path,
+        spoofing_model_path,
         det_thresh,
+        spoof_thresh,
         fps=30,
         *args,
         **kwargs,
@@ -35,7 +37,9 @@ class Processor:
         
         self.headface = HeadFace(det_model_path)
         self.ghostnet = GhostFaceNet(reid_model_path)
+        self.spoofing = SpoofingNet(spoofing_model_path)
         self.det_thresh = det_thresh
+        self.spoof_thresh = spoof_thresh
         self.reid_model_path = reid_model_path
         self.args = args
         self.kwargs = kwargs
@@ -44,6 +48,7 @@ class Processor:
     def __call__(self, img, meta, mode="image", get_layer='face', frame_idx=0): 
         fimage = img.copy()
         
+        # Face detection
         boxes, scores, _, kpts = self.headface.detect(img, get_layer=get_layer)
 
         # Track
@@ -51,13 +56,14 @@ class Processor:
             # humans = self.track_det(img, humans)
             faces = self.track_face(img, boxes, scores, kpts)
 
-        if len(boxes) != 0:
+        if len(boxes) != 0 and len(boxes) == 1:
             steps = 3
-            for xyxy, conf, kpt in zip(boxes, scores, kpts):
+            for xyxy, _, kpt in zip(boxes, scores, kpts):
                 x1, y1, x2, y2 = xyxy.astype(int)
                 color = get_color(int(kpt)) if mode == "video" else (0, 255, 0)
                 cv2.rectangle(img, (x1, y1), (x2, y2), color=color, thickness=2)
 
+                # draw keypoints
                 num_step = len(kpt) // steps
                 for kid in range(num_step):
                     r, g, b = pose_kpt_color[kid]
@@ -73,12 +79,24 @@ class Processor:
                 #     color,
                 #     2,
                 # )
-                
-        # crop image
         
-        result = self.ghostnet.get_features(fimage, boxes, kpts) # [faces, 512]
+        # Check anti-face spoofing
+        spoofing_result = self.spoofing.get_features(fimage, boxes, kpts) # [batch, 2]
+        spoofing_result = self.softmax(spoofing_result)[:,0]
+        
+        # Face recognition
+        if spoofing_result > self.spoof_thresh:
+            ghostnet_result = self.ghostnet.get_features(fimage, boxes, kpts) # [faces, 512]
+        else:
+            ghostnet_result = []
+            
+        return boxes, scores, kpts, ghostnet_result
+        
     
-        return boxes, scores, _, kpts, result
+    def softmax(self, x):
+        s= np.sum(np.exp(x))
+        return np.exp(x)/s
+
     
     def track_face(self, img, bboxes, scores, kpts):
         if len(bboxes) == 0:
