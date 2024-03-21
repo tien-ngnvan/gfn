@@ -1,9 +1,7 @@
 import cv2
-import torch
 import numpy as np
 
 from modules import HeadFace, GhostFaceNet, SpoofingNet
-from sklearn.preprocessing import normalize
 
 
 palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
@@ -22,6 +20,7 @@ def get_color(idx):
     return color
 
 
+
 class Processor:
     def __init__(
         self,
@@ -29,8 +28,7 @@ class Processor:
         reid_model_path,
         spoofing_model_path,
         det_thresh,
-        spoof_thresh,
-        fps=30,
+        spoofing_thresh,
         *args,
         **kwargs,
     ) -> None:        
@@ -39,7 +37,7 @@ class Processor:
         self.ghostnet = GhostFaceNet(reid_model_path)
         self.spoofing = SpoofingNet(spoofing_model_path)
         self.det_thresh = det_thresh
-        self.spoof_thresh = spoof_thresh
+        self.spoofing_thresh = spoofing_thresh
         self.reid_model_path = reid_model_path
         self.args = args
         self.kwargs = kwargs
@@ -56,7 +54,7 @@ class Processor:
             # humans = self.track_det(img, humans)
             faces = self.track_face(img, boxes, scores, kpts)
 
-        if len(boxes) != 0 and len(boxes) == 1:
+        if len(boxes) == 1:
             steps = 3
             for xyxy, _, kpt in zip(boxes, scores, kpts):
                 x1, y1, x2, y2 = xyxy.astype(int)
@@ -80,24 +78,27 @@ class Processor:
                 #     2,
                 # )
         
-        # Check anti-face spoofing
-        spoofing_result = self.spoofing.get_features(fimage, boxes, kpts) # [batch, 2]
-        spoofing_result = self.softmax(spoofing_result)[:,0]
-        
-        # Face recognition
-        if spoofing_result > self.spoof_thresh:
-            ghostnet_result = self.ghostnet.get_features(fimage, boxes, kpts) # [faces, 512]
-        else:
-            ghostnet_result = []
+            # Check anti-face spoofing
+            spoofing_result = self.spoofing.get_features(fimage, boxes, kpts) # [batch, 2]
+            spoofing_result = self.softmax(spoofing_result)[:,0]
             
-        return boxes, scores, kpts, ghostnet_result
+            print("spoofing predict: ", spoofing_result[0], "\tThresh: ", self.spoofing_thresh)
         
-    
+            # Face recognition
+            if spoofing_result[0] > self.spoofing_thresh:
+                ghostnet_result = self.ghostnet.get_features(fimage, boxes, kpts) # [faces, 512]
+            else:
+                ghostnet_result = []
+                
+            return boxes, scores, kpts, ghostnet_result
+        
+        return [], None, None, None
+        
     def softmax(self, x):
         s= np.sum(np.exp(x))
+        
         return np.exp(x)/s
 
-    
     def track_face(self, img, bboxes, scores, kpts):
         if len(bboxes) == 0:
             tracks = self.tracker.update(

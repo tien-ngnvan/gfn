@@ -4,6 +4,7 @@ import onnxruntime as ort
 
 from modules import HeadFace
 
+
 sess_options = ort.SessionOptions()
 sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
@@ -71,16 +72,23 @@ class SpoofingNet:
         
         return result
     
-    def test(self, img):
-        result = self.forward(img)
+    # def test(self, img):
+    #     def softmax(x):
+    #         s= np.sum(np.exp(x))
+    #         return np.exp(x)/s
+
+    #     result = self.forward(img)
+    #     print("Predict: ", result)
         
-        print("Predict: ", result)
-        ttresult = torch.Tensor(result)
-        probs = torch.softmax(ttresult, dim=1)[:,0]
-        print("torch softmax: ", probs)
+    #     ttresult = torch.Tensor(result)
+    #     probs = torch.softmax(ttresult, dim=1)[:,0]
+    #     print("torch softmax: ", probs)
         
-        result = normalize(result)[:,0]
-        print("sklearn norm: ", result)
+    #     mresult = softmax(result)[:,0]
+    #     print("custom softmax: ", mresult)
+        
+    #     result = normalize(result)[:,0]
+    #     print("sklearn norm: ", result)
         
 
 if __name__ == '__main__':
