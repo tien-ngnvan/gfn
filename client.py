@@ -32,14 +32,18 @@ async def hello(uri):
     async with websockets.connect(uri) as websocket:
         cap = cv2.VideoCapture(0)
         while True:
-            # mess = 'hello'
-            # await websocket.send(mess.encode())
-            # greeting = await websocket.recv()
-            # print(f"Received: {greeting}")
+            #
             ret, frame = cap.read()
             data = pickle.dumps(frame)
             await websocket.send(data)
-            greeting = await websocket.recv()
-            print(f"Received: {greeting}")
+            #
+            data = await websocket.recv()
+            data: dict = pickle.loads(data)
+            #
+            boxes = data['boxes']
+            for box in boxes:
+                x1, y1, x2, y2 = box.astype(int)
+                print(f"box: {box}")
+                
 
 asyncio.run(hello('ws://127.0.0.1:8000/ws'))

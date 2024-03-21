@@ -4,9 +4,13 @@ import numpy as np
 import pickle
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from gfn.models import HeadFace
 
 
 app = FastAPI()
+
+headface = HeadFace('weights/yolov7-hf-v1.onnx')
+
 
 @app.websocket('/ws')
 async def socket(websocket: WebSocket):
@@ -38,7 +42,12 @@ async def socket_receive(websocket: WebSocket, queue: asyncio.Queue):
 async def kyc(websocket: WebSocket, queue: asyncio.Queue):
   while True:
     bytes = await queue.get()
-    data = pickle.loads(bytes)
-    data = cv2.resize(data, (640, 640))
-    data = pickle.dumps(data)
-    await websocket.send_text("receive")
+    img = pickle.loads(bytes)
+    #
+    boxes, scores, _, kpts = headface.detect(img, get_layer='face')
+    res = {
+      'boxes': boxes
+    }
+    data = pickle.dumps(res)
+    # await websocket.send_text("receive")
+    await websocket.send_bytes(data)
