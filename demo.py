@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument(
         "--det_model_path",
         type=str,
-        default="weights/det/yolox_darknet.onnx",
+        default="weights/yolov7-hf-v1.onnx",
         help="Path to the human detection model",
     )
     parser.add_argument(
@@ -43,36 +43,35 @@ def parse_args():
         default=0.75,
         help="Threshold for human detection",
     )
-    
-    parser.add_argument(
-        "--face_iou_thres",
-        type=float,
-        default=0.5,
-        help="Threshold for head|face iou",
-    )
     parser.add_argument(
         "--reid_model_path",
         type=str,
-        default="weights/reid/REID_ghostnetv1.onnx",
+        default="weights/ghostnetv1.onnx",
         help="Path to the human reid model",
+    )
+    parser.add_argument(
+        "--reid_thresh",
+        type=float,
+        default=0.4,
+        help="Threshold for recognition",
+    )
+    parser.add_argument(
+        "--spoofing_model_path",
+        type=str,
+        default="weights/OCI2M_spoofing.onnx",
+        help="Path to the human live or spoofing",
+    )
+    parser.add_argument(
+        "--spoofing_thresh",
+        type=float,
+        default=0.5,
+        help="Threshold for live or spoofing",
     )
     parser.add_argument(
         "--tracker_type",
         type=str,
         default="botsort",
         help="Tracker type",
-    )
-    parser.add_argument(
-        "--reid_thresh",
-        type=float,
-        default=0.78,
-        help="Threshold for reid matching",
-    )
-    parser.add_argument(
-        "--match_thresh",
-        type=float,
-        default=0.22734550911325851,
-        help="Threshold for matching tracks",
     )
     parser.add_argument(
         "--camera_log_path",
@@ -108,25 +107,6 @@ def parse_args():
         type=str,
         default="database",
         help="Host for qdrant database",
-    )
-    
-    parser.add_argument(
-        "--turn_spoofing",
-        type=bool,
-        default=0,
-        help="Using spoofing or not in recognitions",
-    )
-    parser.add_argument(
-        "--spoofing_model_path",
-        type=str,
-        default="weights/OCI2M_spoofing.onnx",
-        help="Path to the human reid model",
-    )
-    parser.add_argument(
-        "--spoof_thresh",
-        type=int,
-        default=0.5,
-        help="Threshold for Live or Spoofing",
     )
     
     return parser.parse_args()
@@ -206,11 +186,11 @@ if __name__ == "__main__":
         
         boxes, scores, kpts, embed = processor(frame, meta, mode="image")
     
-        if len(boxes) == 1:  
+        if len(boxes) != 0:  
             if len(embed) != 0:
                 result = compare_cosine(embed, db_embed)
                 rec_idx = result.argmax(-1)
-                name = register_name[rec_idx]  if result[rec_idx] > 0.28 else 'Unknow'
+                name = register_name[rec_idx]  if result[rec_idx] > args.reid_thresh else 'Unknow'
             else:
                 name = 'FAKE'
             
