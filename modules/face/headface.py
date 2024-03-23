@@ -71,7 +71,7 @@ class HeadFace:
                 if pred = 'head'
                     pred[batch, 7]: _, xmin, ymin, xmax, ymax, bbox_label, bbox_score
                 else:
-                    pred[batch, 21]: _, xmin, ymin, xmax, ymax, bbox_label, bbox_score, 
+                    pred[batch, 22]: _, xmin, ymin, xmax, ymax, bbox_label, bbox_score, 
                                     x_keypoint1, y_keypoint1, keypoint1_score,
                                     x_keypoint2, y_keypoint2, keypoint2_score,
                                     ...
