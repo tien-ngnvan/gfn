@@ -1,8 +1,7 @@
 import cv2
 import numpy as np
 import onnxruntime as ort
-
-from . import HeadFace
+from gfn.utils import image, face
 
 
 sess_options = ort.SessionOptions()
@@ -34,21 +33,14 @@ class SpoofingNet:
         # dets are of different sizes so batch preprocessing is not possible
         for box, kpt in zip(xyxys, kpts):
             x1, y1, x2, y2 = box
-            # Limit the face to the image
-            x1 = int(max(0, x1))
-            y1 = int(max(0, y1))
-            x2 = int(min(w, x2))
-            y2 = int(min(h, y2))
-
-            box = [x1, y1, x2, y2]
-            crop = img[y1:y2, x1:x2]
+            crop = image.crops(img, box)
             # Align face
             # Scale the keypoints to the face size
             kpt[::3] = kpt[::3] - x1
             kpt[1::3] = kpt[1::3] - y1
-            
-            crop = HeadFace.face_align(crop, kpt)
-            
+            #
+            crop = face.align_5_points(crop, kpt)
+            #
             crop = cv2.resize(crop, self.model_input_size)
             crop = (crop - 127.5) * 0.0078125
             crop = crop.transpose(2, 0, 1)

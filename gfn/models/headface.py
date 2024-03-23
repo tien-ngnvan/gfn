@@ -2,7 +2,7 @@ import numpy as np
 import math
 import cv2
 
-  
+
 class HeadFace:
     def __init__(self, model_path):
         self.load_model(model_path)
@@ -93,67 +93,10 @@ class HeadFace:
     
     def detect(self, img, test_size=(640, 640), conf_det=0.6, nmsthre=0.45, get_layer=None):
         tensor_img, ratio, dwdh = self.preprocess(img, test_size, auto=False)
-        
+
         # inference head, face
         outputs = self.model.run([], {self.model.get_inputs()[0].name: tensor_img})
         pred = outputs[1] if get_layer == 'face' else outputs[0]
         bboxes, scores, labels, kpts = self.post_process(pred, ratio, dwdh, get_layer=get_layer)
-        
+        #
         return bboxes, scores, labels, kpts
-    
-    @staticmethod
-    def face_align(img, kpts):
-        # 5 points align
-        # left eye, right eye, nose, left mouth, right mouth
-        left_eye = kpts[0:2]
-        right_eye = kpts[3:5]
-
-        # draw the center of eyes
-        cv2.circle(
-            img, (int(left_eye[0]), int(left_eye[1])), 1, (0, 255, 0), thickness=-1
-        )
-        cv2.circle(
-            img, (int(right_eye[0]), int(right_eye[1])), 1, (0, 0, 255), thickness=-1
-        )
-        # Calculate the vertical difference between eye keypoints
-        dy = left_eye[1] - right_eye[1]
-        # get the center of eyes
-        eye_center = ((left_eye + right_eye) / 2).astype("int")
-        cv2.circle(
-            img, (int(eye_center[0]), int(eye_center[1])), 1, (255, 0, 0), thickness=-1
-        )
-        if dy < 0:
-            # need to rotate counter-clockwise
-            angle = math.degrees(math.atan(abs(dy) / (right_eye[0] - left_eye[0])))
-        else:
-            # need to rotate clockwise
-            angle = -math.degrees(math.atan(abs(dy) / (right_eye[0] - left_eye[0])))
-
-        # get the scale for eyes
-        scale = 1
-        # get the rotation matrix
-        M = cv2.getRotationMatrix2D(left_eye.astype(float), angle, scale)
-        # apply the affine transformation
-        aligned_face = cv2.warpAffine(
-            img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_CUBIC
-        )
-
-        return aligned_face
-        
-        
-if __name__ == '__main__':
-    import os
-    
-    yolo_hf = HeadFace(
-        model_path=os.path.join('weights', 'yolov7-hf-v1.onnx')
-    )
-    
-    img = cv2.imread(os.path.join("samples", "picnic.jpg"))[:, :, ::-1]
-    
-    bboxes, bbox_scores, labels, kpts = yolo_hf.detect(img, get_layer='face')
-    
-    print("Bbox\n", bboxes, "\n")
-    print("Keypoint: ", kpts, "\n")
-    print("BBox score: ", bbox_scores, "\n")
-    print("Labels: ", labels, "\n")
-    
