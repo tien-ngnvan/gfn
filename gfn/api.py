@@ -1,6 +1,7 @@
 import os
 import io
-import cv2
+import json
+import base64
 import hashlib
 import pathlib
 import asyncio
@@ -11,6 +12,7 @@ from fastapi import *
 from fastapi.staticfiles import StaticFiles
 from gfn.models import HeadFace, SpoofingNet, GhostFaceNet
 from gfn.utils import image as imgutils
+from io import BytesIO
 
 
 """
@@ -29,7 +31,7 @@ SPOOFING = SpoofingNet(os.getenv('SPOOFING_MODEL_PATH', default='weights/OCI2M.o
 SPOOFING_THRESH = os.getenv('SPOOFING_THRESH', default=0.68)
 # For recognition.
 RECOGNITION = GhostFaceNet(os.getenv('RECOGNITION_MODEL_PATH', default='weights/ghostnetv1.onnx'))
-RECOGNITION_THRESH = os.getenv('RECOGNITION_THRESH', default=0.4)
+RECOGNITION_THRESH = os.getenv('RECOGNITION_THRESH', default=0.3)
 
 """
 Major recognition functions.
@@ -38,7 +40,9 @@ def softmax(x):
   return np.exp(x)/np.sum(np.exp(x))
 
 def compare_cosine(embed, anchor):
-    return np.dot(normalize(embed), anchor.T)[0]
+    norm = normalize([embed])
+    t = anchor.T
+    return np.dot(norm, t)[0]
 
 def detect_face(img):
   boxes, scores, _, kpts = DETECTION.detect(img, get_layer='face', conf_det=DETECTION_THRESH)
@@ -53,7 +57,7 @@ def detect_face(img):
   return None, None
 
 def recognize_face(emb):
-  result = compare_cosine(emb, FACES)
+  result = compare_cosine(emb, np.array(FACES))
   rec_idx = result.argmax(-1)
   return result[rec_idx] > RECOGNITION_THRESH
 
@@ -125,7 +129,7 @@ async def socket_receive(websocket: WebSocket, queue: asyncio.Queue):
   """
   Asynchronous function that will be used to receive websocket connections from frontend.
   """
-  bytes = await websocket.receive_text()
+  bytes = await websocket.receive_bytes()
   try:
     queue.put_nowait(bytes)
   except asyncio.QueueFull:
@@ -134,12 +138,16 @@ async def socket_receive(websocket: WebSocket, queue: asyncio.Queue):
 async def kyc(websocket: WebSocket, queue: asyncio.Queue):
   while True:
     b64 = await queue.get()
-    img = imgutils.from_base64(b64)
+    img = Image.open(BytesIO(base64.b64decode(b64)))
     box, emb = detect_face(np.array(img))
-    
     res = {}
     if box is not None:
-      pass
-    # await websocket.send_bytes(data)
+      res['box'] = str(box)
+      if emb is not None:
+        reg = recognize_face(emb)
+        res['found'] = 'true' if reg else 'false'
+      else:
+        res['found'] = 'fake'
+    await websocket.send_text(json.dumps(res))
 
 

@@ -6,6 +6,8 @@ import sys
 import pickle
 import struct ### new code
 import asyncio
+from PIL import Image
+from gfn.utils import image as imgutils
 
 # def on_message(ws, message):
 #     print(f"Received message: {message}")
@@ -34,16 +36,14 @@ async def hello(uri):
         while True:
             #
             ret, frame = cap.read()
-            data = pickle.dumps(frame)
-            await websocket.send(data)
+            image = Image.fromarray(frame)
+            b64 = imgutils.to_base64(image)
+            await websocket.send(b64)
             #
             data = await websocket.recv()
-            data: dict = pickle.loads(data)
+            
             #
-            boxes = data['boxes']
-            for box in boxes:
-                x1, y1, x2, y2 = box.astype(int)
-                print(f"box: {box}")
+            print(data)
                 
 
-asyncio.run(hello('ws://127.0.0.1:8000/ws'))
+asyncio.run(hello('ws://127.0.0.1:8000'))
