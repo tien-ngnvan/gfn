@@ -1,0 +1,9 @@
+name: gfn
+
+dependencies:
+  - opencv
+  - numpy
+  - onnxruntime
+  - fastapi
+  - pillow
+  - scikit-learn
