@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  gfn:
+    image: hieupth/gfn
+    container_name: gfn
+    restart: unless-stopped
+    ports:
+      - 2086:8000
+    volumes:
+      - ./weights:weights
