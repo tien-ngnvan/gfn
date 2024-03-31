@@ -19,7 +19,7 @@ from io import BytesIO
 Load models and thresh.
 """
 # For face storage.
-FACES = list()
+FACES = dict()
 FACES_IMG_DIR = os.getenv('IMG_DIR', default='face_images')
 FACES_IMG_DIR = pathlib.Path(FACES_IMG_DIR)
 FACES_IMG_DIR.mkdir(exist_ok=True)
@@ -56,23 +56,26 @@ def detect_face(img):
       return boxes[0], None
   return None, None
 
-def recognize_face(emb):
-  result = compare_cosine(emb, np.array(FACES))
+def recognize_face(emb, target):
+  result = compare_cosine(emb, np.array(target))
   rec_idx = result.argmax(-1)
   return result[rec_idx] > RECOGNITION_THRESH
 
 def build_emb():
-  for images in os.listdir(str(FACES_IMG_DIR)):
-    # check if the image ends with png
-    if (images.endswith(".jpg")):
-      name, ext = os.path.splitext(images)
-      path = FACES_IMG_DIR.joinpath(images)
-      image = Image.open(path)
-      box, emb = detect_face(np.array(image))
-      if emb is not None:
-        FACES.append(emb)
-      else:
-        os.remove(path)
+  for _, dirs, _ in FACES_IMG_DIR.walk():
+    for dir in dirs:
+      FACES[dir] = list()
+      folder = FACES_IMG_DIR.joinpath(dir)
+      for _, _, files in folder.walk():
+        for file in files:
+          if file.endswith('.jpg'):
+            path = folder.joinpath(file)
+            img = np.array(Image.open(path))
+            box, emb = detect_face(img)
+            if emb is not None:
+              FACES[dir].append(emb)
+            else:
+              os.remove(path)
 build_emb()
 
 """
@@ -84,8 +87,39 @@ app.mount(f'/imgs', StaticFiles(directory=str(FACES_IMG_DIR)), name='images')
 """
 For face register APIs
 """
+@app.get('/configure')
+async def configure():
+  return json.dumps({
+    'DETECTION_THRESH': DETECTION_THRESH,
+    'SPOOFING_THRESH': SPOOFING_THRESH,
+    'RECOGNITION_THRESH': RECOGNITION_THRESH
+  })
+
+@app.post('/configure')
+async def configure(detection_thresh: float, spoofing_thresh: float, recognition_thresh: float):
+  DETECTION_THRESH = 0 if detection_thresh < 0 else 1 if detection_thresh > 1 else detection_thresh
+  SPOOFING_THRESH = 0 if spoofing_thresh < 0 else 1 if spoofing_thresh > 1 else spoofing_thresh
+  RECOGNITION_THRESH = 0 if recognition_thresh < 0 else 1 if recognition_thresh > 1 else recognition_thresh
+
+@app.get('/ids')
+async def get_id():
+  return list(FACES.keys())
+
+@app.post('/id')
+async def create_id(id: str):
+  try:
+    if id not in FACES:
+      FACES[id] = list()
+      return {'status': 'ok', 'message': f'ID {id} is created'}
+    else:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='ID is duplicated')
+  except:
+    raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail='ID is invalid')
+
 @app.post('/register')
-async def post_face_image(request: Request, file: UploadFile = File(...)):
+async def post_face_image(id: str, request: Request, file: UploadFile = File(...)):
+  if id not in FACES:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f'ID {id} is not founded')
   request_object_content = await file.read()
   try:
     img = Image.open(io.BytesIO(request_object_content))
@@ -94,19 +128,44 @@ async def post_face_image(request: Request, file: UploadFile = File(...)):
     raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported file type") 
   if emb is not None:
     hash = hashlib.md5(img.tobytes()).hexdigest()
-    FACES.append(emb)
-    img.save(str(FACES_IMG_DIR.joinpath(f'{hash}.jpg')))
-    return {'image': f'/imgs/{hash}.jpg'}
+    FACES[id].append(emb)
+    folder = FACES_IMG_DIR.joinpath(f'{id}')
+    folder.mkdir(exist_ok=True)
+    img.save(folder.joinpath(f'{hash}.jpg'))
+    return {'image': f'/imgs/{id}/{hash}.jpg'}
   elif box is None:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No face founded')
   else:
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Maybe fake image')
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='This image maybe faked, please try another image.')
   
-@app.get('/faces')
-async def get_fae_image():
-  res = [f'/imgs/{k}' for k in os.listdir(str(FACES_IMG_DIR)) if k.endswith(".jpg")]
+@app.get('/register')
+async def get_face_image(id: str):
+  if id not in FACES:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f'ID {id} is not founded')
+  res = [f'/imgs/{id}/{k}' for k in os.listdir(FACES_IMG_DIR.joinpath(f'{id}')) if k.endswith(".jpg")]
   return res
 
+@app.post('/check')
+async def face_check(id: str, file: UploadFile = File(...)):
+  if id not in FACES:
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f'ID {id} is not founded')
+  request_object_content = await file.read()
+  try:
+    img = Image.open(io.BytesIO(request_object_content))
+    box, emb = detect_face(np.array(img))
+  except:
+    raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported file type")
+  if box is not None:
+    if emb is not None:
+      reg = recognize_face(emb, FACES[id])
+      if reg:
+        return json.dumps({'status': 'ok'})
+      else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'This face is not {id}')
+    else:
+      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Face maybe faked.')
+  else:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Face not founded or there are more than 1 face.')
 """
 For websocket streaming inference.
 """
@@ -139,6 +198,8 @@ async def kyc(websocket: WebSocket, queue: asyncio.Queue):
   while True:
     b64 = await queue.get()
     img = Image.open(BytesIO(base64.b64decode(b64)))
+    if not img.mode == 'RGB':
+      img = img.convert('RGB')
     box, emb = detect_face(np.array(img))
     res = {}
     if box is not None:

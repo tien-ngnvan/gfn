@@ -6,6 +6,7 @@ services:
     container_name: gfn
     restart: unless-stopped
     ports:
-      - 2086:8000
+      - 2086:8080
     volumes:
-      - ./weights:weights
+      - ./weights:/weights
+    
