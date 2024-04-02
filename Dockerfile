@@ -22,5 +22,6 @@ FROM ubuntu:22.04 AS runtime
 COPY --from=build /venv /venv
 #
 RUN apt-get update && apt-get install -y libgl1-mesa-glx libegl1-mesa libopengl0
+WORKDIR /root
 SHELL ["/bin/bash", "-c"]
 ENTRYPOINT source /venv/bin/activate && uvicorn gfn.api:app --host 0.0.0.0 --port 8080
