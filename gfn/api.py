@@ -11,7 +11,7 @@ from sklearn.preprocessing import normalize
 from fastapi import *
 from fastapi.staticfiles import StaticFiles
 from gfn.models import HeadFace, SpoofingNet, GhostFaceNet
-from gfn.utils import image as imgutils
+from gfn.db import FaceDatabaseInterface, QdrantFaceDatabase
 from io import BytesIO
 
 
@@ -19,16 +19,15 @@ from io import BytesIO
 Load models and thresh.
 """
 # For face storage.
-FACES = dict()
-FACES_IMG_DIR = os.getenv('IMG_DIR', default='face_images')
-FACES_IMG_DIR = pathlib.Path(FACES_IMG_DIR)
+FACES: FaceDatabaseInterface = QdrantFaceDatabase()
+FACES_IMG_DIR = pathlib.Path(os.getenv('IMG_DIR', default='face_images'))
 FACES_IMG_DIR.mkdir(exist_ok=True)
 # For detection.
 DETECTION = HeadFace(os.getenv('DETECTION_MODEL_PATH', default='weights/yolov7-hf-v1.onnx'))
 DETECTION_THRESH = os.getenv('DETECTION_THRESH', default=0.5)
 # For anti-spoofing.
 SPOOFING = SpoofingNet(os.getenv('SPOOFING_MODEL_PATH', default='weights/OCI2M.onnx'))
-SPOOFING_THRESH = os.getenv('SPOOFING_THRESH', default=0.68)
+SPOOFING_THRESH = os.getenv('SPOOFING_THRESH', default=0.6)
 # For recognition.
 RECOGNITION = GhostFaceNet(os.getenv('RECOGNITION_MODEL_PATH', default='weights/ghostnetv1.onnx'))
 RECOGNITION_THRESH = os.getenv('RECOGNITION_THRESH', default=0.3)
@@ -56,10 +55,12 @@ def detect_face(img):
       return boxes[0], None
   return None, None
 
-def recognize_face(emb, target):
-  result = compare_cosine(emb, np.array(target))
-  rec_idx = result.argmax(-1)
-  return result[rec_idx] > RECOGNITION_THRESH
+def recognize_face(emb, person_id):
+  # result = compare_cosine(emb, np.array(target))
+  # rec_idx = result.argmax(-1)
+  rec_idx = FACES.check_face(person_id, emb, RECOGNITION_THRESH)
+  # return rec_idx > RECOGNITION_THRESH
+  return rec_idx
 
 def build_emb():
   for _, dirs, _ in FACES_IMG_DIR.walk():
@@ -76,7 +77,7 @@ def build_emb():
               FACES[dir].append(emb)
             else:
               os.remove(path)
-build_emb()
+#build_emb()
 
 """
 FastAPI
@@ -97,28 +98,24 @@ async def configure():
 
 @app.post('/configure')
 async def configure(detection_thresh: float, spoofing_thresh: float, recognition_thresh: float):
-  DETECTION_THRESH = 0 if detection_thresh < 0 else 1 if detection_thresh > 1 else detection_thresh
+  detect_thresh = 0 if detection_thresh < 0 else 1 if detection_thresh > 1 else detection_thresh
   SPOOFING_THRESH = 0 if spoofing_thresh < 0 else 1 if spoofing_thresh > 1 else spoofing_thresh
   RECOGNITION_THRESH = 0 if recognition_thresh < 0 else 1 if recognition_thresh > 1 else recognition_thresh
 
 @app.get('/ids')
 async def get_id():
-  return list(FACES.keys())
+  return json.dumps(FACES.list_person())
 
 @app.post('/id')
 async def create_id(id: str):
   try:
-    if id not in FACES:
-      FACES[id] = list()
-      return {'status': 'ok', 'message': f'ID {id} is created'}
-    else:
-      raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='ID is duplicated')
+    FACES.create_person(person_id=id)
   except:
-    raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail='ID is invalid')
+    raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail='Cannot create ID')
 
 @app.post('/register')
 async def post_face_image(id: str, request: Request, file: UploadFile = File(...)):
-  if id not in FACES:
+  if id not in FACES.list_person():
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f'ID {id} is not founded')
   request_object_content = await file.read()
   try:
@@ -128,9 +125,11 @@ async def post_face_image(id: str, request: Request, file: UploadFile = File(...
     raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported file type") 
   if emb is not None:
     hash = hashlib.md5(img.tobytes()).hexdigest()
-    FACES[id].append(emb)
+    FACES.insert_face(id, hash, emb)
+    #
     folder = FACES_IMG_DIR.joinpath(f'{id}')
     folder.mkdir(exist_ok=True)
+    #
     img.save(folder.joinpath(f'{hash}.jpg'))
     return {'image': f'/imgs/{id}/{hash}.jpg'}
   elif box is None:
@@ -140,14 +139,16 @@ async def post_face_image(id: str, request: Request, file: UploadFile = File(...
   
 @app.get('/register')
 async def get_face_image(id: str):
-  if id not in FACES:
+  if id not in FACES.list_person():
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f'ID {id} is not founded')
-  res = [f'/imgs/{id}/{k}' for k in os.listdir(FACES_IMG_DIR.joinpath(f'{id}')) if k.endswith(".jpg")]
+  # res = [f'/imgs/{id}/{k}' for k in os.listdir(FACES_IMG_DIR.joinpath(f'{id}')) if k.endswith(".jpg")]
+  res = [''.join(x.id.split('-')) for x in FACES.list_face(id)[0] if x is not None]
+  res = [f'/imgs/{id}/{x}.jpg' for x in res]
   return res
 
 @app.post('/check')
 async def face_check(id: str, file: UploadFile = File(...)):
-  if id not in FACES:
+  if id not in FACES.list_person():
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f'ID {id} is not founded')
   request_object_content = await file.read()
   try:
@@ -157,7 +158,7 @@ async def face_check(id: str, file: UploadFile = File(...)):
     raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported file type")
   if box is not None:
     if emb is not None:
-      reg = recognize_face(emb, FACES[id])
+      reg = recognize_face(emb, id)
       if reg:
         return json.dumps({'status': 'ok'})
       else:
