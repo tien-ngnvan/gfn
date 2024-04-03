@@ -5,7 +5,22 @@ services:
     image: hieupth/gfn
     container_name: gfn
     restart: unless-stopped
+    depends_on:
+      - gfndb
+    links:
+      - gfndb:gfndb
+    environment:
+      - QDRANT_HOST=gfndb
     ports:
-      - 2086:8000
+      - 2086:8080
     volumes:
-      - ./weights:weights
+      - ./weights:/root/weights
+      - ./face_images:/root/face_images
+  gfndb:
+    image: qdrant/qdrant
+    container_name: gfn-qdrantdb
+    restart: unless-stopped
+    ports:
+      - 6333:6333
+    volumes:
+      - ./data:/qdrant/storage

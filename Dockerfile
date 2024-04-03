@@ -17,10 +17,11 @@ RUN conda-pack -n gfn -o /tmp/env.tar && \
 RUN /venv/bin/conda-unpack
 
 # Runtime stage:
-FROM debian:buster AS runtime
+FROM ubuntu:22.04 AS runtime
 # Copy /venv from the previous stage:
 COPY --from=build /venv /venv
 #
-RUN apt-get install libgl1-mesa-glx
+RUN apt-get update && apt-get install -y libgl1-mesa-glx libegl1-mesa libopengl0
+WORKDIR /root
 SHELL ["/bin/bash", "-c"]
 ENTRYPOINT source /venv/bin/activate && uvicorn gfn.api:app --host 0.0.0.0 --port 8080
