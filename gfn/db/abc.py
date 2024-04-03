@@ -28,5 +28,5 @@ class FaceDatabaseInterface(ABC):
     return 
   
   @abstractmethod
-  def check_face(self, person_id, face_emb):
+  def check_face(self, person_id, face_emb, thresh):
     return
