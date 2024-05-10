@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from modules import HeadFace, GhostFaceNet, SpoofingNet
+from modules import HeadFace, BiometricNet 
 
 
 palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
@@ -25,35 +25,27 @@ class Processor:
     def __init__(
         self,
         det_model_path,
-        reid_model_path,
-        spoofing_model_path,
+        feature_model_path,
+        metric_model_path,
         det_thresh,
-        spoofing_thresh,
         *args,
         **kwargs,
     ) -> None:        
         
         self.headface = HeadFace(det_model_path)
-        self.ghostnet = GhostFaceNet(reid_model_path)
-        self.spoofing = SpoofingNet(spoofing_model_path)
+        self.biometric = BiometricNet(feature_model_path, metric_model_path)
         self.det_thresh = det_thresh
-        self.spoofing_thresh = spoofing_thresh
-        self.reid_model_path = reid_model_path
+        self.feature_model_path = feature_model_path
         self.args = args
         self.kwargs = kwargs
         self.mapper = None
 
-    def __call__(self, img, meta, mode="image", get_layer='face', frame_idx=0): 
+    def __call__(self, img, db_embed=None, mode="image", get_layer='face'): 
         fimage = img.copy()
         
         # Face detection
         boxes, scores, _, kpts = self.headface.detect(img, get_layer=get_layer)
-
-        # Track
-        if mode == "video":
-            # humans = self.track_det(img, humans)
-            faces = self.track_face(img, boxes, scores, kpts)
-
+        
         if len(boxes) == 1:
             steps = 3
             for xyxy, _, kpt in zip(boxes, scores, kpts):
@@ -67,109 +59,23 @@ class Processor:
                     r, g, b = pose_kpt_color[kid]
                     x_coord, y_coord = kpt[steps * kid], kpt[steps * kid + 1]
                     cv2.circle(img, (int(x_coord), int(y_coord)), 2, (int(r), int(g), int(b)), -1)
-                    
-                # cv2.putText(
-                #     img,
-                #     f"{face_id} {conf:.2f}",
-                #     (x1, y1 - 10),
-                #     cv2.FONT_HERSHEY_SIMPLEX,
-                #     0.6,
-                #     color,
-                #     2,
-                # )
-        
-            # Check anti-face spoofing
-            spoofing_result = self.spoofing.get_features(fimage, boxes, kpts) # [batch, 2]
-            spoofing_result = self.softmax(spoofing_result)[:,0]
             
-            print("spoofing predict: ", spoofing_result[0], "\tThresh: ", self.spoofing_thresh)
-        
-            # Face recognition
-            if spoofing_result[0] > self.spoofing_thresh:
-                ghostnet_result = self.ghostnet.get_features(fimage, boxes, kpts) # [faces, 512]
+            # featurenet
+            embedings = self.biometric.get_features(fimage, boxes, kpts, norm=False) # [faces, 512]
+            if db_embed is None:
+                return embedings
+            
+            if db_embed.shape[0] > 1:
+                extend = np.tile(embedings, (db_embed.shape[0],1))
             else:
-                ghostnet_result = []
-                
-            return boxes, scores, kpts, ghostnet_result
-        
+                extend = embedings
+  
+            bio_scores = self.biometric.cosim(extend, db_embed)
+            
+            return boxes, bio_scores, kpts, embedings
         return [], None, None, None
         
     def softmax(self, x):
         s= np.sum(np.exp(x))
         
         return np.exp(x)/s
-
-    def track_face(self, img, bboxes, scores, kpts):
-        if len(bboxes) == 0:
-            tracks = self.tracker.update(
-                np.zeros((0, 6)),
-                img,
-                kpts,
-            )
-            return np.zeros((0, 4)), np.zeros((0, 1)), np.zeros((0, 1))
-        # xywh to xyxy
-        bboxes[:, 2] += bboxes[:, 0]
-        bboxes[:, 3] += bboxes[:, 1]
-
-        tracks = self.tracker.update(
-            np.hstack(
-                (bboxes, scores.reshape(-1, 1), np.zeros(len(bboxes)).reshape(-1, 1))
-            ),
-            img,
-            kpts,
-        )
-        if len(tracks.xyxy) == 0:
-            return np.zeros((0, 4)), np.zeros((0, 1))
-
-        tracks.xyxy[:, 0] = np.clip(tracks.xyxy[:, 0], 0, img.shape[1])
-        tracks.xyxy[:, 1] = np.clip(tracks.xyxy[:, 1], 0, img.shape[0])
-        tracks.xyxy[:, 2] = np.clip(tracks.xyxy[:, 2], 0, img.shape[1])
-        tracks.xyxy[:, 3] = np.clip(tracks.xyxy[:, 3], 0, img.shape[0])
-
-        return tracks.xyxy, tracks.confidence, tracks.track_id
-
-    def mosaic_blur(self, img, face, strength=2):
-        if len(face) == 0:
-            return
-        # Apply mosaic blur to the face
-        x1, y1, x2, y2 = face.astype(int)
-
-        # Get the face from the image
-        _face = img[y1:y2, x1:x2].copy()
-        face_height, face_width = _face.shape[:2]
-
-        # Apply a simple mosaic blur
-        _face = cv2.resize(
-            _face, None, fx=strength, fy=strength, interpolation=cv2.INTER_LINEAR
-        )
-
-        _face = cv2.resize(
-            _face, (face_width, face_height), interpolation=cv2.INTER_NEAREST
-        )
-
-        # Create an oval mask
-        mask = np.zeros((face_height, face_width), np.uint8)
-        ellipse_radius_x = face_width // 2
-        ellipse_radius_y = face_height // 2
-        cv2.ellipse(
-            mask,
-            (ellipse_radius_x, ellipse_radius_y),
-            (ellipse_radius_x, ellipse_radius_y),
-            0,
-            0,
-            360,
-            1,
-            -1,
-        )
-
-        # Apply the mask to the mosaic blur
-        _face = cv2.bitwise_and(_face, _face, mask=mask)
-
-        # Paste the mosaic blur onto the original image without the black background
-        original_face = img[y1:y2, x1:x2]
-        img[y1:y2, x1:x2] = cv2.bitwise_and(
-            original_face,
-            original_face,
-            mask=cv2.bitwise_not(mask) // 255,
-        )
-        img[y1:y2, x1:x2] = cv2.bitwise_or(original_face, _face)

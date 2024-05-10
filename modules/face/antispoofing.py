@@ -50,7 +50,8 @@ class SpoofingNet:
             crop = HeadFace.face_align(crop, kpt)
             
             crop = cv2.resize(crop, self.model_input_size)
-            crop = (crop - 127.5) * 0.0078125
+            # crop = (crop - 127.5) * 0.0078125
+            crop = (crop - np.array([0.5, 0.5, 0.5])) / np.array([0.5, 0.5, 0.5])
             crop = crop.transpose(2, 0, 1)
             crop = np.expand_dims(crop, axis=0)
             crops.append(crop)

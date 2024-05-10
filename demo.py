@@ -4,12 +4,10 @@ import glob
 import pickle
 import argparse
 import numpy as np
-from datetime import datetime
 from pathlib import Path
 
 from modules.processor.processor import Processor
 from modules.logging.logger import setup_logger, LoggerFormat
-from sklearn.preprocessing import normalize 
 
 
 IMG_TYPES = [".jpg", ".jpeg", ".png"]
@@ -44,15 +42,21 @@ def parse_args():
         help="Threshold for human detection",
     )
     parser.add_argument(
-        "--reid_model_path",
+        "--feature_model_path",
         type=str,
         default="weights/ghostnetv1.onnx",
         help="Path to the human reid model",
     )
     parser.add_argument(
-        "--reid_thresh",
+        "--metric_model_path",
+        type=str,
+        default="weights/metricnet.onnx",
+        help="Path to the human reid model",
+    )
+    parser.add_argument(
+        "--biometric_thresh",
         type=float,
-        default=0.4,
+        default=0.5,
         help="Threshold for recognition",
     )
     parser.add_argument(
@@ -111,11 +115,6 @@ def parse_args():
     
     return parser.parse_args()
 
-def compare_cosine(embed, anchor):
-    b_norm = normalize(embed)
-    result = np.dot(b_norm, anchor.T)[0]
-  
-    return result 
 
 def init_database(args, processor):
     global db_embed
@@ -152,7 +151,7 @@ def init_database(args, processor):
         for x in img_file_list:
             name = x.split("/")[-1]
             image = cv2.imread(x)
-            _, _, _, _, embd = processor(image, meta, mode="image")
+            embd = processor(image, mode="image")
             db_embed.append(embd[0])
             register_name.append(name.split('.')[0])
   
@@ -162,52 +161,74 @@ def init_database(args, processor):
         with open(os.path.join(datapath).replace('pickle', 'txt'), 'w') as f:
             for x in register_name:
                 f.writelines(f'{x}\n')
-    
-    db_embed = normalize(db_embed)
 
-
+    db_embed = np.array(db_embed)
+        
 if __name__ == "__main__":
     args = parse_args()
     # Initialize processor and logger
     sys_logger = setup_logger(args.system_log_path, format=LoggerFormat.SYSTEM)
 
-    now = datetime.now()
-    meta = {"day": now}
     processor = Processor(**vars(args))
     
     init_database(args, processor)
    
     # open camera
-    cap = cv2.VideoCapture(0)
-    while True:
-        _, frame = cap.read()
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-        
-        boxes, scores, kpts, embed = processor(frame, meta, mode="image")
-    
-        if len(boxes) != 0:  
-            if len(embed) != 0:
-                result = compare_cosine(embed, db_embed)
-                rec_idx = result.argmax(-1)
-                name = register_name[rec_idx]  if result[rec_idx] > args.reid_thresh else 'Unknow'
-            else:
-                name = 'FAKE'
-            
-            steps = 3
-            for xyxy, conf, kpt in zip(boxes, scores, kpts):
-                x1, y1, x2, y2 = xyxy.astype(int)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color=(0, 255, 0), thickness=2)
-                cv2.putText(
-                    frame, f"{name}",
-                    (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, (0, 255, 0), 2
-                )
+    videofile = 'nvt.mp4'
+    if videofile is not None:
+        cap = cv2.VideoCapture(videofile)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        if args.target_fps == 0 or args.target_fps > fps:
+            target_fps = fps
         else:
-            cv2.putText(frame,"Error Detection", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)    
+            target_fps = args.target_fps
         
-        cv2.imshow("Detection", frame)
+        file_name = os.path.splitext(videofile)[0]
+        out = cv2.VideoWriter(
+            os.path.join('runs', file_name) + ".mp4",
+            fourcc,
+            target_fps,
+            (width, height),
+        )
         
-    cap.release()
-    cv2.destroyAllWindows()
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            boxes, bio_score, kpts, embed = processor(frame, db_embed, mode="image")
+        
+            if len(boxes) != 0:
+                pred_score = sum(bio_score) / len(bio_score)        
+                if pred_score > args.biometric_thresh:
+                    check = True
+                    name = 'NV.Tien'
+                else:
+                    check=False
+                    name="Unknow"
+                
+                steps = 3
+                for xyxy, kpt in zip(boxes, kpts):
+                    color = (0, 255, 0) if check else (0, 0, 255)
+                    x1, y1, x2, y2 = xyxy.astype(int)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color=color, thickness=2)
+                    cv2.putText(
+                        frame, f"{pred_score}",
+                        (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, color, 2
+                    )
+            else:
+                cv2.putText(frame,"Error Detection", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)    
+            
+            out.write(frame)
+            
+        cap.release()
+        out.release()   
+    else:
+        cap = cv2.VideoCapture(0)
+        
+    
