@@ -64,16 +64,24 @@ class HeadFace:
         return im, r, (dw, dh)
     
     def post_process(self, pred, ratio, dwdh, conf_thre = 0.7, conf_kpts=0.9, get_layer=None):
-        """_summary_
+        """process function for cleaning output prediction
 
         Args:
-            pred (_type_): _description_
+            pred (array): predict output model 
+                if pred = 'head'
+                    pred[batch, 7]: _, xmin, ymin, xmax, ymax, bbox_label, bbox_score
+                else:
+                    pred[batch, 22]: _, xmin, ymin, xmax, ymax, bbox_label, bbox_score, 
+                                    x_keypoint1, y_keypoint1, keypoint1_score,
+                                    x_keypoint2, y_keypoint2, keypoint2_score,
+                                    ...
+                    
             conf_thre (float, optional): _description_. Defaults to 0.7.
             conf_kpts (float, optional): _description_. Defaults to 0.9.
-            get_layer (str, optional): _description_. Defaults to 'face'.
+            get_layer (str, optional): get detection head layer [head, face]. Defaults to 'face'.
 
         Returns:
-            _type_: [bbox, score, class_name]
+            _type_: [bbox, score, class_name, keypoints]
         """
         
         if isinstance(pred, list):
@@ -81,6 +89,8 @@ class HeadFace:
             
         padding = dwdh*2
         det_bboxes, det_scores, det_labels  = pred[:, 1:5], pred[:, 6], pred[:, 5]
+        kpts = None
+        
         if get_layer == 'face':
             kpts = pred[:, 7:]
             
