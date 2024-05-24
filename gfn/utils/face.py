@@ -1,5 +1,8 @@
+import torch
 import cv2
 import math
+import numpy as np
+
 
 def align_5_points(face, points):
   # 5 points align
